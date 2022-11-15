@@ -2,8 +2,10 @@ import { prisma } from "../common/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { env } from "../../env/server.mjs";
+import { NextRequest } from "next/server";
+import { NextApiRequest } from "next";
 
-const create_token = async (id: number) => {
+export const create_token = async (id: number) => {
   // ensure that the user exists
   const user = await prisma.user.findUnique({
     where: {
@@ -77,12 +79,9 @@ export const delete_user_handler = async (id: number) => {
 export const refresh_token_handler = async (token: string) => {
   try {
     // TODO: TYPE THIS
-    const decoded = jwt.verify(
-      token,
-      "YzUfzRU1hkq7DG+wrJoTb6iVdcV+7kLV"
-    ) as any;
-    const usedId = decoded["https://hasura.io/jwt/claims"]["x-hasura-user-id"];
-    const newToken = await create_token(usedId);
+    const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+    const userId = decoded["https://hasura.io/jwt/claims"]["x-hasura-user-id"];
+    const newToken = await create_token(parseInt(userId));
     return newToken;
   } catch (err) {
     throw new Error("Error while refreshing token");
@@ -123,4 +122,39 @@ export const register_handler = async (
 
   // return user
   return user;
+};
+
+export const me_handler = async (req: NextApiRequest) => {
+  try {
+    // ensure there is a token
+    const token = req?.headers?.authorization
+      ? (req?.headers?.authorization as string).split("Bearer ")[1]
+      : "";
+    if (!token) {
+      throw new Error("No token found");
+    }
+
+    // verify the token
+    const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+    const userId = decoded["https://hasura.io/jwt/claims"]["x-hasura-user-id"];
+
+    // ensure that the user exists
+    const user = await prisma.user.findUnique({
+      where: {
+        id: parseInt(userId),
+      },
+    });
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // ensure that the token is valid
+    if (user.session_token !== token) {
+      throw new Error("Invalid token");
+    }
+
+    return user;
+  } catch (err) {
+    throw new Error("Error while getting user");
+  }
 };
